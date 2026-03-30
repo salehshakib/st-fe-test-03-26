@@ -1,8 +1,12 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ProductCard } from "./components/ProductCard";
 import { ProductSkeletonCard } from "./components/ProductSkeletonCard";
-import { CATEGORY_OPTIONS, DEFAULT_PAGE_SIZE } from "./constants/appConstants";
+import {
+  CATEGORY_OPTIONS,
+  DEFAULT_PAGE_SIZE,
+  PAGE_SIZE_OPTIONS,
+} from "./constants/appConstants";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { useProducts } from "./hooks/useProducts";
 import { useThemeMode } from "./hooks/useThemeMode";
@@ -26,6 +30,7 @@ function getQueryState() {
   if (typeof window === "undefined") {
     return {
       page: 1,
+      pageSize: DEFAULT_PAGE_SIZE,
       category: "All",
       search: "",
     };
@@ -33,10 +38,14 @@ function getQueryState() {
 
   const params = new URLSearchParams(window.location.search);
   const pageParam = Number(params.get("page"));
+  const pageSizeParam = Number(params.get("pageSize"));
   const categoryParam = params.get("category");
 
   return {
     page: Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1,
+    pageSize: PAGE_SIZE_OPTIONS.includes(pageSizeParam)
+      ? pageSizeParam
+      : DEFAULT_PAGE_SIZE,
     category:
       categoryParam && CATEGORY_OPTIONS.includes(categoryParam)
         ? categoryParam
@@ -49,8 +58,10 @@ function App() {
   const initialQueryState = useMemo(() => getQueryState(), []);
   const [page, setPage] = useState(initialQueryState.page);
   const [category, setCategory] = useState(initialQueryState.category);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(initialQueryState.pageSize);
   const [searchInput, setSearchInput] = useState(initialQueryState.search);
+  const resultsStatusRef = useRef<HTMLDivElement>(null);
+  const shouldFocusResultsStatusRef = useRef(false);
   const debouncedSearch = useDebouncedValue(searchInput.trim(), 350);
   const { theme, toggleTheme } = useThemeMode();
 
@@ -62,6 +73,8 @@ function App() {
     } else {
       params.delete("page");
     }
+
+    params.set("pageSize", String(pageSize));
 
     if (category !== "All") {
       params.set("category", category);
@@ -82,12 +95,13 @@ function App() {
     if (nextUrl !== currentUrl) {
       window.history.replaceState(null, "", nextUrl);
     }
-  }, [page, category, searchInput]);
+  }, [page, pageSize, category, searchInput]);
 
   useEffect(() => {
     const handlePopState = () => {
       const nextState = getQueryState();
       setPage(nextState.page);
+      setPageSize(nextState.pageSize);
       setCategory(nextState.category);
       setSearchInput(nextState.search);
     };
@@ -106,6 +120,13 @@ function App() {
 
   const hasResults = products.length > 0;
 
+  useEffect(() => {
+    if (!isLoading && shouldFocusResultsStatusRef.current) {
+      resultsStatusRef.current?.focus();
+      shouldFocusResultsStatusRef.current = false;
+    }
+  }, [isLoading]);
+
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
     setPage(1);
@@ -119,6 +140,12 @@ function App() {
   const handlePageSizeChange = (value: number) => {
     setPageSize(value);
     setPage(1);
+    shouldFocusResultsStatusRef.current = true;
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    setPage(nextPage);
+    shouldFocusResultsStatusRef.current = true;
   };
 
   return (
@@ -152,6 +179,8 @@ function App() {
 
       <main>
         <motion.div
+          ref={resultsStatusRef}
+          tabIndex={-1}
           className="mb-4 text-[0.88rem] text-[var(--text-muted)]"
           aria-live="polite"
           initial={{ opacity: 0 }}
@@ -224,7 +253,7 @@ function App() {
                 totalPages={totalPages}
                 pageSize={pageSize}
                 isLoading={isLoading}
-                onPageChange={setPage}
+                onPageChange={handlePageChange}
                 onPageSizeChange={handlePageSizeChange}
               />
             </Suspense>
