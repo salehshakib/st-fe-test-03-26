@@ -74,7 +74,11 @@ function App() {
       params.delete("page");
     }
 
-    params.set("pageSize", String(pageSize));
+    if (pageSize !== DEFAULT_PAGE_SIZE) {
+      params.set("pageSize", String(pageSize));
+    } else {
+      params.delete("pageSize");
+    }
 
     if (category !== "All") {
       params.set("category", category);
