@@ -1,83 +1,240 @@
-import { Search, Loader2 } from 'lucide-react';
-// import { api } from './services/api'; 
-// Use this to fetch data: api.fetchProducts(...)
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ProductCard } from "./components/ProductCard";
+import { ProductSkeletonCard } from "./components/ProductSkeletonCard";
+import { CATEGORY_OPTIONS, DEFAULT_PAGE_SIZE } from "./constants/appConstants";
+import { useDebouncedValue } from "./hooks/useDebouncedValue";
+import { useProducts } from "./hooks/useProducts";
+import { useThemeMode } from "./hooks/useThemeMode";
+
+const FiltersBar = lazy(async () => {
+  const module = await import("./components/FiltersBar");
+  return { default: module.FiltersBar };
+});
+
+const Pagination = lazy(async () => {
+  const module = await import("./components/Pagination");
+  return { default: module.Pagination };
+});
+
+const ThemeToggle = lazy(async () => {
+  const module = await import("./components/ThemeToggle");
+  return { default: module.ThemeToggle };
+});
+
+function getQueryState() {
+  if (typeof window === "undefined") {
+    return {
+      page: 1,
+      category: "All",
+      search: "",
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const pageParam = Number(params.get("page"));
+  const categoryParam = params.get("category");
+
+  return {
+    page: Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1,
+    category:
+      categoryParam && CATEGORY_OPTIONS.includes(categoryParam)
+        ? categoryParam
+        : "All",
+    search: params.get("search") ?? "",
+  };
+}
 
 function App() {
+  const initialQueryState = useMemo(() => getQueryState(), []);
+  const [page, setPage] = useState(initialQueryState.page);
+  const [category, setCategory] = useState(initialQueryState.category);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [searchInput, setSearchInput] = useState(initialQueryState.search);
+  const debouncedSearch = useDebouncedValue(searchInput.trim(), 350);
+  const { theme, toggleTheme } = useThemeMode();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (page > 1) {
+      params.set("page", String(page));
+    } else {
+      params.delete("page");
+    }
+
+    if (category !== "All") {
+      params.set("category", category);
+    } else {
+      params.delete("category");
+    }
+
+    if (searchInput.trim()) {
+      params.set("search", searchInput.trim());
+    } else {
+      params.delete("search");
+    }
+
+    const queryString = params.toString();
+    const nextUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ""}${window.location.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [page, category, searchInput]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextState = getQueryState();
+      setPage(nextState.page);
+      setCategory(nextState.category);
+      setSearchInput(nextState.search);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const { products, totalPages, totalProducts, isLoading, error, retry } =
+    useProducts({
+      page,
+      limit: pageSize,
+      category,
+      search: debouncedSearch,
+    });
+
+  const hasResults = products.length > 0;
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    setPage(1);
+  };
+
+  const handleCategoryChange = (value: string) => {
+    setCategory(value);
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (value: number) => {
+    setPageSize(value);
+    setPage(1);
+  };
+
   return (
-    <div style={{ minHeight: '100vh', padding: '2rem' }}>
-      {/* Header Section */}
-      <header className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-          Premium Products
-        </h1>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Browse our collection. Handling the flaky API gracefully is part of the challenge.
-        </p>
-      </header>
-
-      {/* Controls Section */}
-      <section style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-        <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', padding: '0.75rem 1rem', flex: 1, maxWidth: '400px' }}>
-          <Search size={20} color="var(--text-muted)" style={{ marginRight: '0.75rem' }} />
-          <input 
-            type="text" 
-            placeholder="Search products..." 
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-main)',
-              outline: 'none',
-              width: '100%',
-              fontSize: '1rem'
-            }}
-          />
+    <div className="mx-auto min-h-screen max-w-[1240px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+      <motion.header
+        className="glass-panel mb-6 p-6"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+      >
+        <div>
+          <h1 className="mb-[0.35rem] text-[1.75rem] font-semibold max-[520px]:text-[1.45rem]">
+            Product List View
+          </h1>
+          <p className="text-[0.95rem] text-[var(--text-muted)]">
+            Premium picks with flaky-network tolerance built in.
+          </p>
         </div>
-        
-        <select 
-          className="glass-panel"
-          style={{
-            padding: '0.75rem 1rem',
-            color: 'var(--text-main)',
-            outline: 'none',
-            fontSize: '1rem',
-            cursor: 'pointer',
-            appearance: 'none',
-          }}
-        >
-          <option value="" style={{ background: 'var(--surface)' }}>All Categories</option>
-          <option value="electronics" style={{ background: 'var(--surface)' }}>Electronics</option>
-          <option value="clothing" style={{ background: 'var(--surface)' }}>Clothing</option>
-          <option value="home" style={{ background: 'var(--surface)' }}>Home</option>
-          <option value="outdoors" style={{ background: 'var(--surface)' }}>Outdoors</option>
-        </select>
-      </section>
+      </motion.header>
 
-      {/* Main Grid Placeholder */}
+      <Suspense
+        fallback={<div className="glass-panel mb-4 h-[50px] animate-pulse" />}
+      >
+        <FiltersBar
+          searchInput={searchInput}
+          category={category}
+          onSearchChange={handleSearchChange}
+          onCategoryChange={handleCategoryChange}
+        />
+      </Suspense>
+
       <main>
-        {/* Placeholder state to visually guide candidate */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '4rem',
-          border: '1px dashed var(--border)',
-          borderRadius: '16px',
-        }}>
-           <Loader2 size={40} color="var(--primary)" className="spin" style={{ marginBottom: '1rem', animation: 'spin 2s linear infinite' }} />
-           <style>
-             {`
-               @keyframes spin {
-                 100% { transform: rotate(360deg); }
-               }
-             `}
-           </style>
-           <h2 style={{ marginBottom: '0.5rem' }}>Start Building Your Grid!</h2>
-           <p style={{ color: 'var(--text-muted)', textAlign: 'center', maxWidth: '500px' }}>
-             Use <code>src/services/api.ts</code> to fetch the products. Remember to build pagination and handle the network errors that the API frequently throws!
-           </p>
-        </div>
+        <motion.div
+          className="mb-4 text-[0.88rem] text-[var(--text-muted)]"
+          aria-live="polite"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.25 }}
+        >
+          {isLoading
+            ? "Loading products..."
+            : `${totalProducts} products found`}
+        </motion.div>
+
+        <AnimatePresence mode="wait">
+          {error && !isLoading ? (
+            <motion.section
+              key="error"
+              className="glass-panel mb-4 flex items-center justify-between gap-4 p-4"
+              role="alert"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <p className="text-[var(--error)]">{error}</p>
+              <button className="btn-primary" type="button" onClick={retry}>
+                Retry
+              </button>
+            </motion.section>
+          ) : null}
+        </AnimatePresence>
+
+        {!error ? (
+          <>
+            <motion.section
+              className="grid grid-cols-1 items-start gap-4 min-[520px]:grid-cols-2 md:gap-5 lg:grid-cols-3 xl:grid-cols-4"
+              aria-busy={isLoading}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.25 }}
+            >
+              {isLoading
+                ? Array.from({ length: pageSize }, (_, idx) => (
+                    <ProductSkeletonCard key={`skeleton-${idx}`} index={idx} />
+                  ))
+                : products.map((product, idx) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      index={idx}
+                    />
+                  ))}
+            </motion.section>
+
+            {!isLoading && !hasResults ? (
+              <motion.section
+                className="glass-panel mt-4 p-8 text-center"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <h2 className="mb-[0.3rem] text-[1.2rem]">No products found</h2>
+                <p className="text-[var(--text-muted)]">
+                  Try a different keyword or category.
+                </p>
+              </motion.section>
+            ) : null}
+
+            <Suspense fallback={null}>
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                isLoading={isLoading}
+                onPageChange={setPage}
+                onPageSizeChange={handlePageSizeChange}
+              />
+            </Suspense>
+          </>
+        ) : null}
       </main>
+
+      <Suspense fallback={null}>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      </Suspense>
     </div>
   );
 }
